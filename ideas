@@ -1,0 +1,1541 @@
+хочу чтобы ты внедрил объекты из библиотеки shadcn. я выдам тебе объекты а ты внедри их в сайт.
+
+
+Ascii Text: npx shadcn@latest add @react-bits/ASCIIText-JS-CSS
+usage - // Component ported and enhanced from https://codepen.io/JuanFuentes/pen/eYEeoyE
+  
+import ASCIIText from './ASCIIText';
+
+<ASCIIText
+  text='hello_world'
+  enableWaves
+  asciiFontSize={8}
+  text="obty.ai"
+/>
+code- // Component ported and enhanced from https://codepen.io/JuanFuentes/pen/eYEeoyE
+
+import { useRef, useEffect } from 'react';
+import * as THREE from 'three';
+
+const vertexShader = `
+varying vec2 vUv;
+uniform float uTime;
+uniform float mouse;
+uniform float uEnableWaves;
+
+void main() {
+    vUv = uv;
+    float time = uTime * 5.;
+
+    float waveFactor = uEnableWaves;
+
+    vec3 transformed = position;
+
+    transformed.x += sin(time + position.y) * 0.5 * waveFactor;
+    transformed.y += cos(time + position.z) * 0.15 * waveFactor;
+    transformed.z += sin(time + position.x) * waveFactor;
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+}
+`;
+
+const fragmentShader = `
+varying vec2 vUv;
+uniform float mouse;
+uniform float uTime;
+uniform sampler2D uTexture;
+
+void main() {
+    float time = uTime;
+    vec2 pos = vUv;
+    
+    float move = sin(time + mouse) * 0.01;
+    float r = texture2D(uTexture, pos + cos(time * 2. - time + pos.x) * .01).r;
+    float g = texture2D(uTexture, pos + tan(time * .5 + pos.x - time) * .01).g;
+    float b = texture2D(uTexture, pos - cos(time * 2. + time + pos.y) * .01).b;
+    float a = texture2D(uTexture, pos).a;
+    gl_FragColor = vec4(r, g, b, a);
+}
+`;
+
+Math.map = function (n, start, stop, start2, stop2) {
+  return ((n - start) / (stop - start)) * (stop2 - start2) + start2;
+};
+
+const PX_RATIO = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
+
+class AsciiFilter {
+  constructor(renderer, { fontSize, fontFamily, charset, invert } = {}) {
+    this.renderer = renderer;
+    this.domElement = document.createElement('div');
+    this.domElement.style.position = 'absolute';
+    this.domElement.style.top = '0';
+    this.domElement.style.left = '0';
+    this.domElement.style.width = '100%';
+    this.domElement.style.height = '100%';
+
+    this.pre = document.createElement('pre');
+    this.domElement.appendChild(this.pre);
+
+    this.canvas = document.createElement('canvas');
+    this.context = this.canvas.getContext('2d');
+    this.domElement.appendChild(this.canvas);
+
+    this.deg = 0;
+    this.invert = invert ?? true;
+    this.fontSize = fontSize ?? 12;
+    this.fontFamily = fontFamily ?? "'Courier New', monospace";
+    this.charset = charset ?? ' .\'`^",:;Il!i~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$';
+
+    this.context.webkitImageSmoothingEnabled = false;
+    this.context.mozImageSmoothingEnabled = false;
+    this.context.msImageSmoothingEnabled = false;
+    this.context.imageSmoothingEnabled = false;
+
+    this.onMouseMove = this.onMouseMove.bind(this);
+    document.addEventListener('mousemove', this.onMouseMove);
+  }
+
+  setSize(width, height) {
+    this.width = width;
+    this.height = height;
+    this.renderer.setSize(width, height);
+    this.reset();
+
+    this.center = { x: width / 2, y: height / 2 };
+    this.mouse = { x: this.center.x, y: this.center.y };
+  }
+
+  reset() {
+    this.context.font = `${this.fontSize}px ${this.fontFamily}`;
+    const charWidth = this.context.measureText('A').width;
+
+    this.cols = Math.floor(this.width / (this.fontSize * (charWidth / this.fontSize)));
+    this.rows = Math.floor(this.height / this.fontSize);
+
+    this.canvas.width = this.cols;
+    this.canvas.height = this.rows;
+    this.pre.style.fontFamily = this.fontFamily;
+    this.pre.style.fontSize = `${this.fontSize}px`;
+    this.pre.style.margin = '0';
+    this.pre.style.padding = '0';
+    this.pre.style.lineHeight = '1em';
+    this.pre.style.position = 'absolute';
+    this.pre.style.left = '0';
+    this.pre.style.top = '0';
+    this.pre.style.zIndex = '9';
+    this.pre.style.backgroundAttachment = 'fixed';
+    this.pre.style.mixBlendMode = 'difference';
+  }
+
+  render(scene, camera) {
+    this.renderer.render(scene, camera);
+
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    this.context.clearRect(0, 0, w, h);
+    if (this.context && w && h) {
+      this.context.drawImage(this.renderer.domElement, 0, 0, w, h);
+    }
+
+    this.asciify(this.context, w, h);
+    this.hue();
+  }
+
+  onMouseMove(e) {
+    this.mouse = { x: e.clientX * PX_RATIO, y: e.clientY * PX_RATIO };
+  }
+
+  get dx() {
+    return this.mouse.x - this.center.x;
+  }
+
+  get dy() {
+    return this.mouse.y - this.center.y;
+  }
+
+  hue() {
+    const deg = (Math.atan2(this.dy, this.dx) * 180) / Math.PI;
+    this.deg += (deg - this.deg) * 0.075;
+    this.domElement.style.filter = `hue-rotate(${this.deg.toFixed(1)}deg)`;
+  }
+
+  asciify(ctx, w, h) {
+    if (w && h) {
+      const imgData = ctx.getImageData(0, 0, w, h).data;
+      let str = '';
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = x * 4 + y * 4 * w;
+          const [r, g, b, a] = [imgData[i], imgData[i + 1], imgData[i + 2], imgData[i + 3]];
+
+          if (a === 0) {
+            str += ' ';
+            continue;
+          }
+
+          let gray = (0.3 * r + 0.6 * g + 0.1 * b) / 255;
+          let idx = Math.floor((1 - gray) * (this.charset.length - 1));
+          if (this.invert) idx = this.charset.length - idx - 1;
+          str += this.charset[idx];
+        }
+        str += '\n';
+      }
+      this.pre.innerHTML = str;
+    }
+  }
+
+  dispose() {
+    document.removeEventListener('mousemove', this.onMouseMove);
+  }
+}
+
+class CanvasTxt {
+  constructor(txt, { fontSize = 200, fontFamily = 'Arial', color = '#fdf9f3' } = {}) {
+    this.canvas = document.createElement('canvas');
+    this.context = this.canvas.getContext('2d');
+    this.txt = txt;
+    this.fontSize = fontSize;
+    this.fontFamily = fontFamily;
+    this.color = color;
+
+    this.font = `600 ${this.fontSize}px ${this.fontFamily}`;
+  }
+
+  resize() {
+    this.context.font = this.font;
+    const metrics = this.context.measureText(this.txt);
+
+    const textWidth = Math.ceil(metrics.width) + 20;
+    const textHeight = Math.ceil(metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent) + 20;
+
+    this.canvas.width = textWidth;
+    this.canvas.height = textHeight;
+  }
+
+  render() {
+    this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.context.fillStyle = this.color;
+    this.context.font = this.font;
+
+    const metrics = this.context.measureText(this.txt);
+    const yPos = 10 + metrics.actualBoundingBoxAscent;
+
+    this.context.fillText(this.txt, 10, yPos);
+  }
+
+  get width() {
+    return this.canvas.width;
+  }
+
+  get height() {
+    return this.canvas.height;
+  }
+
+  get texture() {
+    return this.canvas;
+  }
+}
+
+class CanvAscii {
+  constructor(
+    { text, asciiFontSize, textFontSize, textColor, planeBaseHeight, enableWaves },
+    containerElem,
+    width,
+    height
+  ) {
+    this.textString = text;
+    this.asciiFontSize = asciiFontSize;
+    this.textFontSize = textFontSize;
+    this.textColor = textColor;
+    this.planeBaseHeight = planeBaseHeight;
+    this.container = containerElem;
+    this.width = width;
+    this.height = height;
+    this.enableWaves = enableWaves;
+
+    this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 1, 1000);
+    this.camera.position.z = 30;
+
+    this.scene = new THREE.Scene();
+    this.mouse = { x: this.width / 2, y: this.height / 2 };
+
+    this.onMouseMove = this.onMouseMove.bind(this);
+  }
+
+  async init() {
+    try {
+      await document.fonts.load('600 200px "IBM Plex Mono"');
+      await document.fonts.load('500 12px "IBM Plex Mono"');
+    } catch (e) {
+      // Font loading failed, continue with fallback
+    }
+    await document.fonts.ready;
+
+    this.setMesh();
+    this.setRenderer();
+  }
+
+  setMesh() {
+    this.textCanvas = new CanvasTxt(this.textString, {
+      fontSize: this.textFontSize,
+      fontFamily: 'IBM Plex Mono',
+      color: this.textColor
+    });
+    this.textCanvas.resize();
+    this.textCanvas.render();
+
+    this.texture = new THREE.CanvasTexture(this.textCanvas.texture);
+    this.texture.minFilter = THREE.NearestFilter;
+
+    const textAspect = this.textCanvas.width / this.textCanvas.height;
+    const baseH = this.planeBaseHeight;
+    const planeW = baseH * textAspect;
+    const planeH = baseH;
+
+    this.geometry = new THREE.PlaneGeometry(planeW, planeH, 36, 36);
+    this.material = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      transparent: true,
+      uniforms: {
+        uTime: { value: 0 },
+        mouse: { value: 1.0 },
+        uTexture: { value: this.texture },
+        uEnableWaves: { value: this.enableWaves ? 1.0 : 0.0 }
+      }
+    });
+
+    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    this.scene.add(this.mesh);
+  }
+
+  setRenderer() {
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+    this.renderer.setPixelRatio(1);
+    this.renderer.setClearColor(0x000000, 0);
+
+    this.filter = new AsciiFilter(this.renderer, {
+      fontFamily: 'IBM Plex Mono',
+      fontSize: this.asciiFontSize,
+      invert: true
+    });
+
+    this.container.appendChild(this.filter.domElement);
+    this.setSize(this.width, this.height);
+
+    this.container.addEventListener('mousemove', this.onMouseMove);
+    this.container.addEventListener('touchmove', this.onMouseMove);
+  }
+
+  setSize(w, h) {
+    this.width = w;
+    this.height = h;
+
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+
+    this.filter.setSize(w, h);
+
+    this.center = { x: w / 2, y: h / 2 };
+  }
+
+  load() {
+    this.animate();
+  }
+
+  onMouseMove(evt) {
+    const e = evt.touches ? evt.touches[0] : evt;
+    const bounds = this.container.getBoundingClientRect();
+    const x = e.clientX - bounds.left;
+    const y = e.clientY - bounds.top;
+    this.mouse = { x, y };
+  }
+
+  animate() {
+    const animateFrame = () => {
+      this.animationFrameId = requestAnimationFrame(animateFrame);
+      this.render();
+    };
+    animateFrame();
+  }
+
+  render() {
+    const time = new Date().getTime() * 0.001;
+
+    this.textCanvas.render();
+    this.texture.needsUpdate = true;
+
+    this.mesh.material.uniforms.uTime.value = Math.sin(time);
+
+    this.updateRotation();
+    this.filter.render(this.scene, this.camera);
+  }
+
+  updateRotation() {
+    const x = Math.map(this.mouse.y, 0, this.height, 0.5, -0.5);
+    const y = Math.map(this.mouse.x, 0, this.width, -0.5, 0.5);
+
+    this.mesh.rotation.x += (x - this.mesh.rotation.x) * 0.05;
+    this.mesh.rotation.y += (y - this.mesh.rotation.y) * 0.05;
+  }
+
+  clear() {
+    this.scene.traverse(obj => {
+      if (obj.isMesh && typeof obj.material === 'object' && obj.material !== null) {
+        Object.keys(obj.material).forEach(key => {
+          const matProp = obj.material[key];
+          if (matProp !== null && typeof matProp === 'object' && typeof matProp.dispose === 'function') {
+            matProp.dispose();
+          }
+        });
+        obj.material.dispose();
+        obj.geometry.dispose();
+      }
+    });
+    this.scene.clear();
+  }
+
+  dispose() {
+    cancelAnimationFrame(this.animationFrameId);
+    if (this.filter) {
+      this.filter.dispose();
+      if (this.filter.domElement.parentNode) {
+        this.container.removeChild(this.filter.domElement);
+      }
+    }
+    this.container.removeEventListener('mousemove', this.onMouseMove);
+    this.container.removeEventListener('touchmove', this.onMouseMove);
+    this.clear();
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
+  }
+}
+
+export default function ASCIIText({
+  text = 'David!',
+  asciiFontSize = 8,
+  textFontSize = 200,
+  textColor = '#fdf9f3',
+  planeBaseHeight = 8,
+  enableWaves = true
+}) {
+  const containerRef = useRef(null);
+  const asciiRef = useRef(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    let cancelled = false;
+    let observer = null;
+    let ro = null;
+
+    const createAndInit = async (container, w, h) => {
+      const instance = new CanvAscii(
+        { text, asciiFontSize, textFontSize, textColor, planeBaseHeight, enableWaves },
+        container,
+        w,
+        h
+      );
+      await instance.init();
+      return instance;
+    };
+
+    const setup = async () => {
+      const { width, height } = containerRef.current.getBoundingClientRect();
+
+      if (width === 0 || height === 0) {
+        observer = new IntersectionObserver(
+          async ([entry]) => {
+            if (cancelled) return;
+            if (entry.isIntersecting && entry.boundingClientRect.width > 0 && entry.boundingClientRect.height > 0) {
+              const { width: w, height: h } = entry.boundingClientRect;
+              observer.disconnect();
+              observer = null;
+
+              if (!cancelled) {
+                asciiRef.current = await createAndInit(containerRef.current, w, h);
+                if (!cancelled && asciiRef.current) {
+                  asciiRef.current.load();
+                }
+              }
+            }
+          },
+          { threshold: 0.1 }
+        );
+        observer.observe(containerRef.current);
+        return;
+      }
+
+      asciiRef.current = await createAndInit(containerRef.current, width, height);
+      if (!cancelled && asciiRef.current) {
+        asciiRef.current.load();
+
+        ro = new ResizeObserver(entries => {
+          if (!entries[0] || !asciiRef.current) return;
+          const { width: w, height: h } = entries[0].contentRect;
+          if (w > 0 && h > 0) {
+            asciiRef.current.setSize(w, h);
+          }
+        });
+        ro.observe(containerRef.current);
+      }
+    };
+
+    setup();
+
+    return () => {
+      cancelled = true;
+      if (observer) observer.disconnect();
+      if (ro) ro.disconnect();
+      if (asciiRef.current) {
+        asciiRef.current.dispose();
+        asciiRef.current = null;
+      }
+    };
+  }, [text, asciiFontSize, textFontSize, textColor, planeBaseHeight, enableWaves]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="ascii-text-container"
+      style={{
+        position: 'absolute',
+        width: '100%',
+        height: '100%'
+      }}
+    >
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+        .ascii-text-container canvas {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: 100%;
+          image-rendering: optimizeSpeed;
+          image-rendering: -moz-crisp-edges;
+          image-rendering: -o-crisp-edges;
+          image-rendering: -webkit-optimize-contrast;
+          image-rendering: optimize-contrast;
+          image-rendering: crisp-edges;
+          image-rendering: pixelated;
+        }
+
+        .ascii-text-container pre {
+          margin: 0;
+          user-select: none;
+          padding: 0;
+          line-height: 1em;
+          text-align: left;
+          position: absolute;
+          left: 0;
+          top: 0;
+          background-image: radial-gradient(circle, #ff6188 0%, #fc9867 50%, #ffd866 100%);
+          background-attachment: fixed;
+          -webkit-text-fill-color: transparent;
+          -webkit-background-clip: text;
+          z-index: 9;
+          mix-blend-mode: difference;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+
+
+Bubble Menu: npx shadcn@latest add @react-bits/BubbleMenu-JS-CSS
+
+usage - import BubbleMenu from './BubbleMenu'
+
+const items = [
+  {
+    label: 'home',
+    href: '#',
+    ariaLabel: 'Home',
+    rotation: -8,
+    hoverStyles: { bgColor: '#3b82f6', textColor: '#ffffff' }
+  },
+  {
+    label: 'about',
+    href: '#',
+    ariaLabel: 'About',
+    rotation: 8,
+    hoverStyles: { bgColor: '#10b981', textColor: '#ffffff' }
+  },
+  {
+    label: 'projects',
+    href: '#',
+    ariaLabel: 'Projects',
+    rotation: 8,
+    hoverStyles: { bgColor: '#f59e0b', textColor: '#ffffff' }
+  },
+  {
+    label: 'blog',
+    href: '#',
+    ariaLabel: 'Blog',
+    rotation: 8,
+    hoverStyles: { bgColor: '#ef4444', textColor: '#ffffff' }
+  },
+  {
+    label: 'contact',
+    href: '#',
+    ariaLabel: 'Contact',
+    rotation: -8,
+    hoverStyles: { bgColor: '#8b5cf6', textColor: '#ffffff' }
+  }
+];
+
+<BubbleMenu
+  logo={<span style={{ fontWeight: 700 }}>RB</span>}
+  items={items}
+  menuAriaLabel="Toggle navigation"
+  menuBg="#ffffff"
+  menuContentColor="#111111"
+  useFixedPosition={false}
+  animationEase="back.out(1.5)"
+  animationDuration={0.5}
+  staggerDelay={0.12}
+/>
+
+code - import { useState, useRef, useEffect } from 'react';
+import { gsap } from 'gsap';
+
+import './BubbleMenu.css';
+
+const DEFAULT_ITEMS = [
+  {
+    label: 'home',
+    href: '#',
+    ariaLabel: 'Home',
+    rotation: -8,
+    hoverStyles: { bgColor: '#3b82f6', textColor: '#ffffff' }
+  },
+  {
+    label: 'about',
+    href: '#',
+    ariaLabel: 'About',
+    rotation: 8,
+    hoverStyles: { bgColor: '#10b981', textColor: '#ffffff' }
+  },
+  {
+    label: 'projects',
+    href: '#',
+    ariaLabel: 'Documentation',
+    rotation: 8,
+    hoverStyles: { bgColor: '#f59e0b', textColor: '#ffffff' }
+  },
+  {
+    label: 'blog',
+    href: '#',
+    ariaLabel: 'Blog',
+    rotation: 8,
+    hoverStyles: { bgColor: '#ef4444', textColor: '#ffffff' }
+  },
+  {
+    label: 'contact',
+    href: '#',
+    ariaLabel: 'Contact',
+    rotation: -8,
+    hoverStyles: { bgColor: '#8b5cf6', textColor: '#ffffff' }
+  }
+];
+
+export default function BubbleMenu({
+  logo,
+  onMenuClick,
+  className,
+  style,
+  menuAriaLabel = 'Toggle menu',
+  menuBg = '#fff',
+  menuContentColor = '#111',
+  useFixedPosition = false,
+  items,
+  animationEase = 'back.out(1.5)',
+  animationDuration = 0.5,
+  staggerDelay = 0.12
+}) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(false);
+
+  const overlayRef = useRef(null);
+  const bubblesRef = useRef([]);
+  const labelRefs = useRef([]);
+
+  const menuItems = items?.length ? items : DEFAULT_ITEMS;
+  const containerClassName = ['bubble-menu', useFixedPosition ? 'fixed' : 'absolute', className]
+    .filter(Boolean)
+    .join(' ');
+
+  const handleToggle = () => {
+    const nextState = !isMenuOpen;
+    if (nextState) setShowOverlay(true);
+    setIsMenuOpen(nextState);
+    onMenuClick?.(nextState);
+  };
+
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    const bubbles = bubblesRef.current.filter(Boolean);
+    const labels = labelRefs.current.filter(Boolean);
+
+    if (!overlay || !bubbles.length) return;
+
+    if (isMenuOpen) {
+      gsap.set(overlay, { display: 'flex' });
+      gsap.killTweensOf([...bubbles, ...labels]);
+      gsap.set(bubbles, { scale: 0, transformOrigin: '50% 50%' });
+      gsap.set(labels, { y: 24, autoAlpha: 0 });
+
+      bubbles.forEach((bubble, i) => {
+        const delay = i * staggerDelay + gsap.utils.random(-0.05, 0.05);
+        const tl = gsap.timeline({ delay });
+
+        tl.to(bubble, {
+          scale: 1,
+          duration: animationDuration,
+          ease: animationEase
+        });
+        if (labels[i]) {
+          tl.to(
+            labels[i],
+            {
+              y: 0,
+              autoAlpha: 1,
+              duration: animationDuration,
+              ease: 'power3.out'
+            },
+            `-=${animationDuration * 0.9}`
+          );
+        }
+      });
+    } else if (showOverlay) {
+      gsap.killTweensOf([...bubbles, ...labels]);
+      gsap.to(labels, {
+        y: 24,
+        autoAlpha: 0,
+        duration: 0.2,
+        ease: 'power3.in'
+      });
+      gsap.to(bubbles, {
+        scale: 0,
+        duration: 0.2,
+        ease: 'power3.in',
+        onComplete: () => {
+          gsap.set(overlay, { display: 'none' });
+          setShowOverlay(false);
+        }
+      });
+    }
+  }, [isMenuOpen, showOverlay, animationEase, animationDuration, staggerDelay]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (isMenuOpen) {
+        const bubbles = bubblesRef.current.filter(Boolean);
+        const isDesktop = window.innerWidth >= 900;
+
+        bubbles.forEach((bubble, i) => {
+          const item = menuItems[i];
+          if (bubble && item) {
+            const rotation = isDesktop ? (item.rotation ?? 0) : 0;
+            gsap.set(bubble, { rotation });
+          }
+        });
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isMenuOpen, menuItems]);
+
+  return (
+    <>
+      <nav className={containerClassName} style={style} aria-label="Main navigation">
+        <div className="bubble logo-bubble" aria-label="Logo" style={{ background: menuBg }}>
+          <span className="logo-content">
+            {typeof logo === 'string' ? <img src={logo} alt="Logo" className="bubble-logo" /> : logo}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          className={`bubble toggle-bubble menu-btn ${isMenuOpen ? 'open' : ''}`}
+          onClick={handleToggle}
+          aria-label={menuAriaLabel}
+          aria-pressed={isMenuOpen}
+          style={{ background: menuBg }}
+        >
+          <span className="menu-line" style={{ background: menuContentColor }} />
+          <span className="menu-line short" style={{ background: menuContentColor }} />
+        </button>
+      </nav>
+      {showOverlay && (
+        <div
+          ref={overlayRef}
+          className={`bubble-menu-items ${useFixedPosition ? 'fixed' : 'absolute'}`}
+          aria-hidden={!isMenuOpen}
+        >
+          <ul className="pill-list" role="menu" aria-label="Menu links">
+            {menuItems.map((item, idx) => (
+              <li key={idx} role="none" className="pill-col">
+                <a
+                  role="menuitem"
+                  href={item.href}
+                  aria-label={item.ariaLabel || item.label}
+                  className="pill-link"
+                  style={{
+                    '--item-rot': `${item.rotation ?? 0}deg`,
+                    '--pill-bg': menuBg,
+                    '--pill-color': menuContentColor,
+                    '--hover-bg': item.hoverStyles?.bgColor || '#f3f4f6',
+                    '--hover-color': item.hoverStyles?.textColor || menuContentColor
+                  }}
+                  ref={el => {
+                    if (el) bubblesRef.current[idx] = el;
+                  }}
+                >
+                  <span
+                    className="pill-label"
+                    ref={el => {
+                      if (el) labelRefs.current[idx] = el;
+                    }}
+                  >
+                    {item.label}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
+css - .bubble-menu {
+  left: 0;
+  right: 0;
+  top: 2em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 2em;
+  pointer-events: none;
+  z-index: 99;
+}
+
+.bubble-menu.fixed {
+  position: fixed;
+}
+
+.bubble-menu.absolute {
+  position: absolute;
+}
+
+.bubble-menu .bubble {
+  --bubble-size: 48px;
+  width: var(--bubble-size);
+  height: var(--bubble-size);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.bubble-menu .logo-bubble,
+.bubble-menu .toggle-bubble {
+  will-change: transform;
+}
+
+.bubble-menu .logo-bubble {
+  width: auto;
+  min-height: var(--bubble-size);
+  height: var(--bubble-size);
+  padding: 0 16px;
+  border-radius: calc(var(--bubble-size) / 2);
+  gap: 8px;
+}
+
+.bubble-menu .toggle-bubble {
+  width: var(--bubble-size);
+  height: var(--bubble-size);
+}
+
+.bubble-menu .bubble-logo {
+  max-height: 60%;
+  max-width: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.bubble-menu .logo-content {
+  --logo-max-height: 60%;
+  --logo-max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 100%;
+}
+
+.bubble-menu .logo-content > .bubble-logo,
+.bubble-menu .logo-content > img,
+.bubble-menu .logo-content > svg {
+  max-height: var(--logo-max-height);
+  max-width: var(--logo-max-width);
+}
+
+.bubble-menu .menu-btn {
+  border: none;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.bubble-menu .menu-line {
+  width: 26px;
+  height: 2px;
+  background: #111;
+  border-radius: 2px;
+  display: block;
+  margin: 0 auto;
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
+  transform-origin: center;
+}
+
+.bubble-menu .menu-line + .menu-line {
+  margin-top: 6px;
+}
+
+.bubble-menu .menu-btn.open .menu-line:first-child {
+  transform: translateY(4px) rotate(45deg);
+}
+
+.bubble-menu .menu-btn.open .menu-line:last-child {
+  transform: translateY(-4px) rotate(-45deg);
+}
+
+@media (min-width: 768px) {
+  .bubble-menu .bubble {
+    --bubble-size: 56px;
+  }
+
+  .bubble-menu .logo-bubble {
+    padding: 0 16px;
+  }
+}
+
+.bubble-menu-items {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 98;
+}
+
+.bubble-menu-items.fixed {
+  position: fixed;
+}
+
+.bubble-menu-items.absolute {
+  position: absolute;
+}
+
+.bubble-menu-items .pill-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  row-gap: 4px;
+  width: 100%;
+  max-width: 1600px;
+  margin-left: auto;
+  margin-right: auto;
+  pointer-events: auto;
+  justify-content: stretch;
+}
+
+.bubble-menu-items .pill-list .pill-spacer {
+  width: 100%;
+  height: 0;
+  pointer-events: none;
+}
+
+.bubble-menu-items .pill-list .pill-col {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  flex: 0 0 calc(100% / 3);
+  box-sizing: border-box;
+}
+
+.bubble-menu-items .pill-list .pill-col:nth-child(4):nth-last-child(2) {
+  margin-left: calc(100% / 6);
+}
+
+.bubble-menu-items .pill-list .pill-col:nth-child(4):last-child {
+  margin-left: calc(100% / 3);
+}
+
+.bubble-menu-items .pill-link {
+  --pill-bg: #ffffff;
+  --pill-color: #111;
+  --pill-border: rgba(0, 0, 0, 0.12);
+  --item-rot: 0deg;
+  --pill-min-h: 160px;
+  --hover-bg: #f3f4f6;
+  --hover-color: #111;
+  width: 100%;
+  min-height: var(--pill-min-h);
+  padding: clamp(1.5rem, 3vw, 8rem) 0;
+  font-size: clamp(1.5rem, 4vw, 4rem);
+  font-weight: 400;
+  line-height: 0;
+  border-radius: 999px;
+  background: var(--pill-bg);
+  color: var(--pill-color);
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition:
+    background 0.3s ease,
+    color 0.3s ease;
+  will-change: transform;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  height: 10px;
+}
+
+@media (min-width: 900px) {
+  .bubble-menu-items .pill-link {
+    transform: rotate(var(--item-rot));
+  }
+
+  .bubble-menu-items .pill-link:hover {
+    transform: rotate(var(--item-rot)) scale(1.06);
+    background: var(--hover-bg);
+    color: var(--hover-color);
+  }
+
+  .bubble-menu-items .pill-link:active {
+    transform: rotate(var(--item-rot)) scale(0.94);
+  }
+}
+
+.bubble-menu-items .pill-link .pill-label {
+  display: inline-block;
+  will-change: transform, opacity;
+  height: 1.2em;
+  line-height: 1.2;
+}
+
+@media (max-width: 899px) {
+  .bubble-menu-items {
+    padding-top: 0px;
+    align-items: flex-start;
+    padding-top: 120px;
+  }
+
+  .bubble-menu-items .pill-list {
+    row-gap: 16px;
+  }
+
+  .bubble-menu-items .pill-list .pill-col {
+    flex: 0 0 100%;
+    margin-left: 0 !important;
+    overflow: visible;
+  }
+
+  .bubble-menu-items .pill-link {
+    font-size: clamp(1.2rem, 3vw, 4rem);
+    padding: clamp(1rem, 2vw, 2rem) 0;
+    min-height: 80px;
+  }
+
+  .bubble-menu-items .pill-link:hover {
+    transform: scale(1.06);
+    background: var(--hover-bg);
+    color: var(--hover-color);
+  }
+
+  .bubble-menu-items .pill-link:active {
+    transform: scale(0.94);
+  }
+}
+
+
+
+Dock: npx shadcn@latest add @react-bits/Dock-JS-CSS
+
+Usage: import Dock from './Dock';
+
+  const items = [
+    { icon: <VscHome size={18} />, label: 'Home', onClick: () => alert('Home!') },
+    { icon: <VscArchive size={18} />, label: 'Archive', onClick: () => alert('Archive!') },
+    { icon: <VscAccount size={18} />, label: 'Profile', onClick: () => alert('Profile!') },
+    { icon: <VscSettingsGear size={18} />, label: 'Settings', onClick: () => alert('Settings!') },
+  ];
+
+  <Dock 
+    items={items}
+    panelHeight={68}
+    baseItemSize={50}
+    magnification={70}
+  />
+
+Code - 'use client';
+
+import { motion, useMotionValue, useSpring, useTransform, AnimatePresence } from 'motion/react';
+import { Children, cloneElement, useEffect, useMemo, useRef, useState } from 'react';
+
+import './Dock.css';
+
+function DockItem({ children, className = '', onClick, mouseX, spring, distance, magnification, baseItemSize }) {
+  const ref = useRef(null);
+  const isHovered = useMotionValue(0);
+
+  const mouseDistance = useTransform(mouseX, val => {
+    const rect = ref.current?.getBoundingClientRect() ?? {
+      x: 0,
+      width: baseItemSize
+    };
+    return val - rect.x - baseItemSize / 2;
+  });
+
+  const targetSize = useTransform(mouseDistance, [-distance, 0, distance], [baseItemSize, magnification, baseItemSize]);
+  const size = useSpring(targetSize, spring);
+
+  return (
+    <motion.div
+      ref={ref}
+      style={{
+        width: size,
+        height: size
+      }}
+      onHoverStart={() => isHovered.set(1)}
+      onHoverEnd={() => isHovered.set(0)}
+      onFocus={() => isHovered.set(1)}
+      onBlur={() => isHovered.set(0)}
+      onClick={onClick}
+      className={`dock-item ${className}`}
+      tabIndex={0}
+      role="button"
+      aria-haspopup="true"
+    >
+      {Children.map(children, child => cloneElement(child, { isHovered }))}
+    </motion.div>
+  );
+}
+
+function DockLabel({ children, className = '', ...rest }) {
+  const { isHovered } = rest;
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = isHovered.on('change', latest => {
+      setIsVisible(latest === 1);
+    });
+    return () => unsubscribe();
+  }, [isHovered]);
+
+  return (
+    <AnimatePresence>
+      {isVisible && (
+        <motion.div
+          initial={{ opacity: 0, y: 0 }}
+          animate={{ opacity: 1, y: -10 }}
+          exit={{ opacity: 0, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className={`dock-label ${className}`}
+          role="tooltip"
+          style={{ x: '-50%' }}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function DockIcon({ children, className = '' }) {
+  return <div className={`dock-icon ${className}`}>{children}</div>;
+}
+
+export default function Dock({
+  items,
+  className = '',
+  spring = { mass: 0.1, stiffness: 150, damping: 12 },
+  magnification = 70,
+  distance = 200,
+  panelHeight = 68,
+  dockHeight = 256,
+  baseItemSize = 50
+}) {
+  const mouseX = useMotionValue(Infinity);
+  const isHovered = useMotionValue(0);
+
+  const maxHeight = useMemo(
+    () => Math.max(dockHeight, magnification + magnification / 2 + 4),
+    [magnification, dockHeight]
+  );
+  const heightRow = useTransform(isHovered, [0, 1], [panelHeight, maxHeight]);
+  const height = useSpring(heightRow, spring);
+
+  return (
+    <motion.div style={{ height, scrollbarWidth: 'none' }} className="dock-outer">
+      <motion.div
+        onMouseMove={({ pageX }) => {
+          isHovered.set(1);
+          mouseX.set(pageX);
+        }}
+        onMouseLeave={() => {
+          isHovered.set(0);
+          mouseX.set(Infinity);
+        }}
+        className={`dock-panel ${className}`}
+        style={{ height: panelHeight }}
+        role="toolbar"
+        aria-label="Application dock"
+      >
+        {items.map((item, index) => (
+          <DockItem
+            key={index}
+            onClick={item.onClick}
+            className={item.className}
+            mouseX={mouseX}
+            spring={spring}
+            distance={distance}
+            magnification={magnification}
+            baseItemSize={baseItemSize}
+          >
+            <DockIcon>{item.icon}</DockIcon>
+            <DockLabel>{item.label}</DockLabel>
+          </DockItem>
+        ))}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+
+css - .dock-outer {
+  margin: 0 0.5rem;
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+}
+
+.dock-panel {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  width: fit-content;
+  gap: 1rem;
+  border-radius: 1rem;
+  background-color: #060010;
+  border: 1px solid #222;
+  padding: 0 0.5rem 0.5rem;
+}
+
+.dock-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background-color: #060010;
+  border: 1px solid #222;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  outline: none;
+}
+
+.dock-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dock-label {
+  position: absolute;
+  top: -1.5rem;
+  left: 50%;
+  width: fit-content;
+  white-space: pre;
+  border-radius: 0.375rem;
+  border: 1px solid #222;
+  background-color: #060010;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  color: #fff;
+  transform: translateX(-50%);
+}
+
+Folder : npx shadcn@latest add @react-bits/Folder-JS-CSS
+
+Usage - import Folder from './Folder'
+
+<div style={{ height: '600px', position: 'relative' }}>
+  <Folder size={2} color="#5227FF" className="custom-folder"
+  color="#5227FF"
+  size={2}
+/>
+</div>
+
+Code - import { useState } from 'react';
+import './Folder.css';
+
+const darkenColor = (hex, percent) => {
+  let color = hex.startsWith('#') ? hex.slice(1) : hex;
+  if (color.length === 3) {
+    color = color
+      .split('')
+      .map(c => c + c)
+      .join('');
+  }
+  const num = parseInt(color, 16);
+  let r = (num >> 16) & 0xff;
+  let g = (num >> 8) & 0xff;
+  let b = num & 0xff;
+  r = Math.max(0, Math.min(255, Math.floor(r * (1 - percent))));
+  g = Math.max(0, Math.min(255, Math.floor(g * (1 - percent))));
+  b = Math.max(0, Math.min(255, Math.floor(b * (1 - percent))));
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+};
+
+const Folder = ({ color = '#5227FF', size = 1, items = [], className = '' }) => {
+  const maxItems = 3;
+  const papers = items.slice(0, maxItems);
+  while (papers.length < maxItems) {
+    papers.push(null);
+  }
+
+  const [open, setOpen] = useState(false);
+  const [paperOffsets, setPaperOffsets] = useState(Array.from({ length: maxItems }, () => ({ x: 0, y: 0 })));
+
+  const folderBackColor = darkenColor(color, 0.08);
+  const paper1 = darkenColor('#ffffff', 0.1);
+  const paper2 = darkenColor('#ffffff', 0.05);
+  const paper3 = '#ffffff';
+
+  const handleClick = () => {
+    setOpen(prev => !prev);
+    if (open) {
+      setPaperOffsets(Array.from({ length: maxItems }, () => ({ x: 0, y: 0 })));
+    }
+  };
+
+  const handlePaperMouseMove = (e, index) => {
+    if (!open) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const offsetX = (e.clientX - centerX) * 0.15;
+    const offsetY = (e.clientY - centerY) * 0.15;
+    setPaperOffsets(prev => {
+      const newOffsets = [...prev];
+      newOffsets[index] = { x: offsetX, y: offsetY };
+      return newOffsets;
+    });
+  };
+
+  const handlePaperMouseLeave = (e, index) => {
+    setPaperOffsets(prev => {
+      const newOffsets = [...prev];
+      newOffsets[index] = { x: 0, y: 0 };
+      return newOffsets;
+    });
+  };
+
+  const folderStyle = {
+    '--folder-color': color,
+    '--folder-back-color': folderBackColor,
+    '--paper-1': paper1,
+    '--paper-2': paper2,
+    '--paper-3': paper3
+  };
+
+  const folderClassName = `folder ${open ? 'open' : ''}`.trim();
+  const scaleStyle = { transform: `scale(${size})` };
+
+  return (
+    <div style={scaleStyle} className={className}>
+      <div className={folderClassName} style={folderStyle} onClick={handleClick}>
+        <div className="folder__back">
+          {papers.map((item, i) => (
+            <div
+              key={i}
+              className={`paper paper-${i + 1}`}
+              onMouseMove={e => handlePaperMouseMove(e, i)}
+              onMouseLeave={e => handlePaperMouseLeave(e, i)}
+              style={
+                open
+                  ? {
+                      '--magnet-x': `${paperOffsets[i]?.x || 0}px`,
+                      '--magnet-y': `${paperOffsets[i]?.y || 0}px`
+                    }
+                  : {}
+              }
+            >
+              {item}
+            </div>
+          ))}
+          <div className="folder__front"></div>
+          <div className="folder__front right"></div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Folder;
+
+css - :root {
+  --folder-color: #70a1ff;
+  --folder-back-color: #4785ff;
+  --paper-1: #e6e6e6;
+  --paper-2: #f2f2f2;
+  --paper-3: #ffffff;
+}
+
+.folder {
+  transition: all 0.2s ease-in;
+  cursor: pointer;
+}
+
+.folder:not(.folder--click):hover {
+  transform: translateY(-8px);
+}
+
+.folder:not(.folder--click):hover .paper {
+  transform: translate(-50%, 0%);
+}
+
+.folder:not(.folder--click):hover .folder__front {
+  transform: skew(15deg) scaleY(0.6);
+}
+
+.folder:not(.folder--click):hover .right {
+  transform: skew(-15deg) scaleY(0.6);
+}
+
+.folder.open {
+  transform: translateY(-8px);
+}
+
+.folder.open .paper:nth-child(1) {
+  transform: translate(-120%, -70%) rotateZ(-15deg);
+}
+
+.folder.open .paper:nth-child(1):hover {
+  transform: translate(-120%, -70%) rotateZ(-15deg) scale(1.1);
+}
+
+.folder.open .paper:nth-child(2) {
+  transform: translate(10%, -70%) rotateZ(15deg);
+  height: 80%;
+}
+
+.folder.open .paper:nth-child(2):hover {
+  transform: translate(10%, -70%) rotateZ(15deg) scale(1.1);
+}
+
+.folder.open .paper:nth-child(3) {
+  transform: translate(-50%, -100%) rotateZ(5deg);
+  height: 80%;
+}
+
+.folder.open .paper:nth-child(3):hover {
+  transform: translate(-50%, -100%) rotateZ(5deg) scale(1.1);
+}
+
+.folder.open .folder__front {
+  transform: skew(15deg) scaleY(0.6);
+}
+
+.folder.open .right {
+  transform: skew(-15deg) scaleY(0.6);
+}
+
+.folder__back {
+  position: relative;
+  width: 100px;
+  height: 80px;
+  background: var(--folder-back-color);
+  border-radius: 0px 10px 10px 10px;
+}
+
+.folder__back::after {
+  position: absolute;
+  z-index: 0;
+  bottom: 98%;
+  left: 0;
+  content: '';
+  width: 30px;
+  height: 10px;
+  background: var(--folder-back-color);
+  border-radius: 5px 5px 0 0;
+}
+
+.paper {
+  position: absolute;
+  z-index: 2;
+  bottom: 10%;
+  left: 50%;
+  transform: translate(-50%, 10%);
+  width: 70%;
+  height: 80%;
+  background: var(--paper-1);
+  border-radius: 10px;
+  transition: all 0.3s ease-in-out;
+}
+
+.paper:nth-child(2) {
+  background: var(--paper-2);
+  width: 80%;
+  height: 70%;
+}
+
+.paper:nth-child(3) {
+  background: var(--paper-3);
+  width: 90%;
+  height: 60%;
+}
+
+.folder__front {
+  position: absolute;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  background: var(--folder-color);
+  border-radius: 5px 10px 10px 10px;
+  transform-origin: bottom;
+  transition: all 0.3s ease-in-out;
+}
+
